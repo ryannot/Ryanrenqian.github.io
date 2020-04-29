@@ -13,10 +13,11 @@ neural architecture search (NAS)： 即一种神经网络搜索框架，旨在�
 
 ## 亮点
 
-
 ## 论文简介：
 
+目标也是新颖点：
 
+通常的NAS 在一系列特定的网络中寻找一个最好的模型，但是这篇文章主要探究通常的网络设计方法，怎么设计网络更好，更高效。
 
 在NAS领域中，将设计网络的设计空间作为模型结构的参数集，也就是说不同的模型参数代表着不同的模型结构。寻找合适模型参数才是优化的方向。举一个栗子，初始化的参数空间为A，通过NAS优化，不断寻找其中更好的空间区域如从A->B->C。分布错误（右图）因此获得了提升, 模型因此能够获得更强劲的性能（robust and generalize）。
 
@@ -47,15 +48,127 @@ neural architecture search (NAS)： 即一种神经网络搜索框架，旨在�
 
 3. Block，Stage之间的关系：![image-20200411104313381](https://tva1.sinaimg.cn/large/007S8ZIlgy1gdwgv0r8uuj30nc0bmmy3.jpg)
 
+4.  错误经验分布函数 EDF：
+   ![image-20200427192200983](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8jnuq7dxj30bi026q2w.jpg)
+
+   给定一个model set，错误小于error的model所占据的比例。反映了该模型集的quality。
+
+   ![image-20200427192236516](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8jof09z7j30bw08ujru.jpg)
+
+   
+
 ## AnyNet space
 
-结构由三部分组成，stem，body，head。
+结构由三部分组成，简单的stem，跟着是进行主体计算的body，然后是进行预测类别head。为了主要专注于决定模型准确性和计算的body部分的设计，作者使用尽量简单的head和stem。
 
-The AnyNetX design space has 16 degrees of freedom as each network consists of 4 stages and each stage i has 4 parameters: the number of blocks di , block width wi , bottleneck ratio bi, and group width gi. 
+![image-20200411104924744](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8l3d3sgqj30ls0ay3z7.jpg)
 
-![image-20200411104924744](https://tva1.sinaimg.cn/large/007S8ZIlgy1gdwgv3wzf8j30ls0ayjsa.jpg)
+
+
+在实验中大部分都是用带有分组卷积（group convolution）的残差bottleneck结构-X block
 
 ![image-20200411104838608](https://tva1.sinaimg.cn/large/007S8ZIlgy1gdwgv84hypj30pa0ictba.jpg)
+
+The AnyNetX design space has 16 degrees of freedom as each network consists of 4 stages and each stage i has 4 parameters: the number of blocks $d_i$ , block width $w_i$ , bottleneck ratio $b_i$, and group width $g_i$. 
+
+(16·128·3·6)4 ≈ 1018 possible model configu- rations in the AnyNetX design space.
+
+目标：探索能够帮助我们理解和精炼网络的设计空间的设计原则，而不是搜索最佳的模型。 因此作者需要实现以下目标：
+
+1. 简化设计空间的结构
+2. 提高设计空间的可解释性
+3. 提高或者维持设计空间的quality
+4. 维持设计空间的模型的多样性
+
+那他是怎么做的了：
+
+1. 初始化的无限制的网络空间$AnyNetX_A$
+
+2. $AnyNetX_B$: $AnyNetX_A$ 所有stage共享的bottleneck ratio bi=b的空间。 以相同的settings，采样并从$AnyNetX_B$训练500个模型。 这说明相对于$AnyNetX_A$，共享bottleneck ratio的$AnyNetX_B$并没有造成准确性的下降，因此可以将设计空间从$AnyNetX_A$缩小为$AnyNetX_B$.
+
+   ![image-20200427202446480](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8lh34hxbj30aw08q0tc.jpg) 
+
+3. 同样的，为了进一步减少设计空间，作者探究了$AnyNetX_B$在use a *shared* group width gi = g for all stages对于设计空间quality的影响，即为$AnyNetX_C$,同样的进行EDFs分析，结果如下：
+   ![image-20200427203123193](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8lnyu8k0j309408074n.jpg)
+
+   由此可见，设计空间还可以从$AnyNetX_B$缩小到$AnyNetX_C$。此时$AnyNetX_C$相对于$AnyNetX_A$减少了6个自由度，并减少四个数量级的设计空间大小。由于$AnyNetX_C$已经大量减少了设计空间，作者可以检验$AnyNetX_C$中的好的网络和坏的网络的特征。
+
+   ![image-20200427203627141](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8lt9252cj31020i6tcp.jpg)
+
+   如上图，可见好的模型的width随着深度的加深而增加$w_{i+1} ≥ w_i$（上）而差的模型则相反（下）
+
+4. 基于在$AnyNetX_C$上的发现，设计了$w_{i+1} ≥ w_i$的$AnyNetX_D$空间。EDFs分析如下：![image-20200427203940836](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8lwlrhu9j30es0amjsl.jpg)
+
+5. 在上述实验中，作者还发现了另一个有趣的趋势：stage $w_i$除了随着i增加，也会随着stage $d_i$增加，尽管在最后一个stage没有并没有变化，但是还是设计了$d_{i+1} ≥ d_i$的$AnyNetX_E$。结果发现相对于$AnyNetX_D$确实获得了提升。
+
+   ![image-20200427204400150](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8m1sv81nj30ca0a0q3h.jpg)
+
+   此时，加入了$w_i$和$d_i$的限制，使得设计空间降低为4！。而$AnyNetX_A$的复杂度为$O(10^7)$ .
+
+##  RegNet Design Space
+
+为了进一步观察模型结构，作者将$AnyNetX_E$中最好的20个模型可视化出来。如下图：
+
+![image-20200427205318955](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8masjcrgj30bi08gt9b.jpg)
+
+灰色的线表示每一个单独的模型，实黑色的线是$w_j =48·(j+1)for 0 ≤ j ≤ 20$为参考线（可以理解为拟合线）说明宽度的增长趋势。拟合的方式为：
+
+被被称为linear parametrization
+
+![image-20200427212310611](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8n5v8t0yj30vm0amjtg.jpg)
+
+![image-20200427212337939](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8n6c9fzbj30vo0cugnx.jpg)
+
+1. $u_j$ block的$w_j$，等式2表示随着block增加而宽度增加
+2. 等式3，4表示每个Block宽度与Stage的关系
+
+总之，宽度随着深度一起增加。
+
+紧接着在$AnyNetX_E$中最好的模型中进行了拟合上的验证。如下图，说明该曲线符合规律分布
+
+![image-20200427212601312](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8n8tf4mwj30su0ca40u.jpg)
+
+然后比较$AnyNetX_E$与$AnyNetX_C$之间的fitting error $e_{fit}$($e_{fit}$表示参数与上述等式的吻合程度，或者说拟合方差) versus network error![image-20200427212856699](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8nbvpzeuj30z409oac6.jpg)
+
+观测到两点：
+
+1. 所有的设计空间中最好模型都符合好的线性拟合
+2. $e_{fit}$ 的平均水平从$AnyNetX_C$到$AnyNetX_E$均得到提升，这说明线性参数化的有效性，即$w_i$和$d_i$的关系。
+
+因此，为了验证该关系，作者根据这几个等式从$AnyNetX_E$得到的设计空间$RegNet$。特化6个参数d, $w_0$, $w_a$, $w_m$ (and also b, g)
+
+![image-20200427213839314](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8nlyuex4j30ym09kacn.jpg)
+
+1. 稍微的提升。$w_m ≥ 2$ 效果更好
+2. $w_0=w_a$进一步提升，同时简化了$u_j =w_a·(j+1)$
+3. 随机搜索效率进一步提升，大概32个左右的随机模型中就能产生好的模型
+
+### Summary of Design Space Summary
+
+![image-20200427214934498](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8nxbmjlrj30x008iac3.jpg)
+
+### generalization比较
+
+![image-20200427215128124](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8nzaw9zhj30zi0patg4.jpg)
+
+通过上图可知，尽管RegNet的参数自由度更小，但是泛化性依然很强能够适应新的设置。
+
+### Analyzing the **RegNetX** Design Space
+
+设置：100 model, 25 epoch, LR = 0.1
+
+#### **RegNet** trend![image-20200427220213650](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8oansl5zj30zo0fa428.jpg)
+
+the *depth of best models is stable across regimes* (top-left), with an optimal depth of ∼20 blocks (60 layers). This is in contrast to the common practice of using deeper models for higher flop regimes.
+
+1. **值得注意到**是这个现象违背经验，即使用更深的模型需要更高的FLOP
+2. 最好的模型使用*bottleneck ratio* b *of 1.0* (top-middle)
+
+#### Complexity analysis
+
+由于没有一个固定分析网络的方法，发现activations(激活数)能够严重的影响运行时间（意思是activations反映了运行时间）。对于最好的模型群，activations随着FLOP的平方增加，参数线性增加，
+
+![image-20200427221152375](https://tva1.sinaimg.cn/large/007S8ZIlgy1ge8okj2p59j30z40gwtfj.jpg)
 
 
 
